@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>스마트 차등 정산기</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif;color:#202535;background:#f4f6fb}
+*{box-sizing:border-box}body{margin:0;padding:28px 16px}
+main{max-width:780px;margin:auto}.hero{text-align:center;margin:12px 0 26px}
+h1{font-size:32px;margin:0 0 8px}.sub{color:#697386}
+.card{background:white;border:1px solid #e5e9f2;border-radius:18px;padding:22px;margin:16px 0;box-shadow:0 5px 20px #26324a0a}
+h2{font-size:21px;margin:0 0 18px}.field{margin:14px 0}
+label{display:block;font-weight:650;margin-bottom:7px}
+input,textarea,select{width:100%;padding:12px;border:1px solid #cfd6e3;border-radius:10px;font:inherit;background:#fff}
+textarea{min-height:88px;resize:vertical}.hint{font-size:13px;color:#707b8d;margin-top:6px}
+button{border:0;border-radius:10px;padding:11px 15px;font:inherit;font-weight:650;cursor:pointer}
+.primary{background:#365eea;color:white;width:100%;padding:14px;margin-top:10px}
+.secondary{background:#eef2ff;color:#304fc4}.remove{background:#fff0f0;color:#b42318;padding:7px 10px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;margin:10px 0;padding:12px;background:#f8f9fc;border-radius:12px}
+.row .reason-field{grid-column:1 / -1}
+.row .remove{justify-self:end}
+.row .field{margin:0}.checkrow{display:flex;align-items:center;gap:9px;padding:8px 0}
+.checkrow input{width:auto}.result{display:none}.result h2{margin-bottom:8px}
+.person{display:flex;justify-content:space-between;padding:13px 4px;border-bottom:1px solid #edf0f5}
+.person:last-child{border:0}.amount{font-weight:750;font-variant-numeric:tabular-nums}
+.total-line{display:flex;justify-content:space-between;background:#f2f5ff;padding:14px;border-radius:12px;margin-top:14px;font-weight:700}
+.error{color:#b42318;background:#fff1f0;border-radius:10px;padding:12px;display:none;margin-top:12px}
+.note{font-size:13px;color:#6d7788;line-height:1.6}
+@media(max-width:560px){.row{grid-template-columns:1fr}.row .reason-field{grid-column:1}.row .remove{grid-column:1;justify-self:end}h1{font-size:26px}.card{padding:17px}}
+</style>
+</head>
+<body>
+<main>
+<header class="hero">
+  <h1>💸 스마트 차등 정산기</h1>
+  <div class="sub">참여자별 예외 조건을 반영해 공정하게 정산해 보세요.</div>
+</header>
+
+<section class="card">
+  <h2>① 기본 정보 입력</h2>
+  <div class="field">
+    <label for="total">총 정산 금액 (원)</label>
+    <input id="total" type="number" min="0" step="1" placeholder="예: 85000">
+  </div>
+  <div class="field">
+    <label for="people">참여자 이름</label>
+    <textarea id="people" placeholder="이름을 쉼표 또는 줄바꿈으로 구분해 입력하세요.&#10;예: 민수, 지영, 서연, 준호"></textarea>
+    <div class="hint">입력한 순서대로 결과가 표시됩니다. 이름은 중복될 수 없습니다.</div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>② 동적 예외 조건 설정</h2>
+  <div class="field">
+    <label>특정인 제외</label>
+    <div id="exclude-list"></div>
+    <button class="secondary" id="add-exclude" type="button">＋ 특정인 제외 추가</button>
+    <div class="hint">정산에서 제외된 사람은 0원을 부담하고, 나머지 금액을 다른 참여자가 나눠 냅니다.</div>
+  </div>
+  <hr style="border:0;border-top:1px solid #edf0f5;margin:22px 0">
+  <div class="field">
+    <label>특정인 개별 금액 지정</label>
+    <div id="fixed-list"></div>
+    <button class="secondary" id="add-fixed" type="button">＋ 특정인 정산 금액 추가</button>
+    <div class="hint">지정한 금액을 먼저 반영하고, 남은 금액을 나머지 참여자에게 균등 분배합니다.</div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>③ 정산 결과</h2>
+  <p class="note">금액은 원 단위로 계산하며, 나누어떨어지지 않는 잔액은 참여자 입력 순서대로 1원씩 배분합니다.</p>
+  <button class="primary" id="calculate" type="button">정산하기</button>
+  <div class="error" id="error"></div>
+  <div class="result" id="result">
+    <div id="results"></div>
+    <div class="total-line"><span>총합 확인</span><span id="sum"></span></div>
+    <p class="note" id="details"></p>
+    <button class="secondary" id="copy" type="button">결과 복사</button>
+  </div>
+</section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let lastText = "";
+function parsePeople(){
+  return $("people").value.split(/[,\n]/).map(x=>x.trim()).filter(Boolean);
+}
+function makeRow(container, kind){
+  const row=document.createElement("div"); row.className="row";
+  const nameWrap=document.createElement("div"); nameWrap.className="field";
+  const nameLabel=document.createElement("label"); nameLabel.textContent="대상자";
+  const name=document.createElement("select"); name.className="person-name";
+  nameWrap.append(nameLabel,name);
+  row.append(nameWrap);
+  if(kind==="fixed"){
+    const amountWrap=document.createElement("div"); amountWrap.className="field";
+    const amountLabel=document.createElement("label"); amountLabel.textContent="지정 금액 (원)";
+    const amount=document.createElement("input"); amount.type="number"; amount.min="0"; amount.step="1"; amount.placeholder="예: 10000"; amount.className="fixed-amount";
+    amountWrap.append(amountLabel,amount); row.append(amountWrap);
+  }else{
+    const spacer=document.createElement("div"); spacer.className="hint"; spacer.textContent="정산 제외"; row.append(spacer);
+  }
+  const reasonWrap=document.createElement("div"); reasonWrap.className="field reason-field";
+  const reasonLabel=document.createElement("label"); reasonLabel.textContent="설정 이유";
+  const reason=document.createElement("input"); reason.type="text"; reason.maxLength=120;
+  reason.placeholder=kind==="fixed" ? "예: 특정 메뉴를 따로 주문함" : "예: 식사에 참여하지 않음";
+  reason.className="condition-reason";
+  reasonWrap.append(reasonLabel,reason); row.append(reasonWrap);
+  const remove=document.createElement("button"); remove.type="button"; remove.className="remove"; remove.textContent="삭제";
+  remove.onclick=()=>row.remove(); row.append(remove);
+  $(container).append(row); refreshSelects();
+}
+function refreshSelects(){
+  const people=parsePeople();
+  document.querySelectorAll(".person-name").forEach(sel=>{
+    const old=sel.value; sel.innerHTML="";
+    people.forEach(p=>{const o=document.createElement("option");o.value=p;o.textContent=p;sel.append(o)});
+    if(people.includes(old))sel.value=old;
+  });
+}
+$("people").addEventListener("input",refreshSelects);
+$("add-exclude").onclick=()=>makeRow("exclude-list","exclude");
+$("add-fixed").onclick=()=>makeRow("fixed-list","fixed");
+$("calculate").onclick=async()=>{
+  $("error").style.display="none"; $("result").style.display="none";
+  const people=parsePeople();
+  const excluded=[...document.querySelectorAll("#exclude-list .row")].map(row=>({
+    name:row.querySelector(".person-name").value,
+    reason:row.querySelector(".condition-reason").value.trim()
+  }));
+  const fixed=[...document.querySelectorAll("#fixed-list .row")].map(row=>({
+    name:row.querySelector(".person-name").value,
+    amount:row.querySelector(".fixed-amount").value,
+    reason:row.querySelector(".condition-reason").value.trim()
+  }));
+  try{
+    const response=await fetch("/api/settle",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({total:$("total").value,people,excluded,fixed})});
+    const data=await response.json();
+    if(!response.ok||!data.ok)throw new Error(data.error||"입력값을 확인해 주세요.");
+    const r=data.result;
+    $("results").innerHTML="";
+    r.shares.forEach(item=>{
+      const div=document.createElement("div");div.className="person";
+      const n=document.createElement("span");n.textContent=item.name;
+      const a=document.createElement("span");a.className="amount";a.textContent=item.amount.toLocaleString("ko-KR")+"원";
+      div.append(n,a);$("results").append(div);
+    });
+    $("sum").textContent=r.check_sum.toLocaleString("ko-KR")+"원 / "+r.total.toLocaleString("ko-KR")+"원";
+    $("details").textContent=`참여자 ${r.people_count}명 · 제외 ${r.excluded.length}명 · 개별 지정 ${r.fixed.length}명`;
+    const reasonBox=document.createElement("div");
+    reasonBox.style.cssText="margin-top:14px;padding:12px;background:#f8f9fc;border-radius:12px";
+    const heading=document.createElement("strong"); heading.textContent="예외 조건 및 설정 이유"; reasonBox.append(heading);
+    const reasonItems=[
+      ...r.excluded.map(x=>({label:`${x.name} · 정산 제외`,reason:x.reason})),
+      ...r.fixed.map(x=>({label:`${x.name} · ${x.amount.toLocaleString("ko-KR")}원 지정`,reason:x.reason}))
+    ];
+    if(reasonItems.length){
+      reasonItems.forEach(item=>{const p=document.createElement("p");p.className="note";p.textContent=item.label+" — "+(item.reason||"이유 미입력");reasonBox.append(p);});
+    }else{const p=document.createElement("p");p.className="note";p.textContent="설정한 예외 조건이 없습니다.";reasonBox.append(p);}
+    $("results").append(reasonBox);
+    const reasonLines=[
+      ...r.excluded.map(x=>`제외: ${x.name} — ${x.reason||"이유 미입력"}`),
+      ...r.fixed.map(x=>`개별 금액: ${x.name} ${x.amount.toLocaleString("ko-KR")}원 — ${x.reason||"이유 미입력"}`)
+    ];
+    lastText="스마트 차등 정산 결과\n"+r.shares.map(x=>`${x.name}: ${x.amount.toLocaleString("ko-KR")}원`).join("\n")
+      +(reasonLines.length?"\n\n예외 조건 및 설정 이유\n"+reasonLines.join("\n"):"")
+      +`\n합계: ${r.check_sum.toLocaleString("ko-KR")}원`;
+    $("result").style.display="block";
+  }catch(e){$("error").textContent=e.message;$("error").style.display="block";}
+};
+$("copy").onclick=async()=>{
+  try{await navigator.clipboard.writeText(lastText);$("copy").textContent="복사 완료";}
+  catch(e){$("copy").textContent="복사 실패: 브라우저 권한을 확인하세요";}
+};
+</script>
+</body>
+</html>
